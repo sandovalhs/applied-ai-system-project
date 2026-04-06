@@ -140,6 +140,18 @@ You will go deeper on this in your model card.
 
 ---
 
+## Screenshots
+
+<a href="pic1.png" target="_blank"><img src='pic1.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+
+<a href="pic2.png" target="_blank"><img src='pic2.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+
+<a href="pic3.png" target="_blank"><img src='pic3.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+
+<a href="pic4.png" target="_blank"><img src='pic4.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+
+---
+
 ## Reflection
 
 Read and complete `model_card.md`:
