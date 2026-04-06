@@ -15,8 +15,19 @@ from recommender import load_songs, recommend_songs
 def main() -> None:
     songs = load_songs("data/songs.csv") 
 
-    # Starter example profile
-    user_prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+    # Taste profile — target values for each scoring feature
+    user_prefs = {
+        "genre": "kpop",                  # categorical: 0.5x weight (nudge, not dominate)
+        "mood": "hype",                   # categorical: 0.5x weight
+        "energy": 0.85,                   # high energy tracks
+        "tempo_bpm": 130,                 # upbeat tempo
+        "valence": 0.50,                  # lowered: covers moody (Weeknd) and upbeat (kpop)
+        "danceability": 0.87,             # weighted higher to separate rock from kpop
+        "acousticness": 0.04,             # heavily produced, not acoustic
+        "speechiness_range": (0.03, 0.82),# range: accepts both sung kpop and rap vocals
+        "loudness_db": -4.5,              # loud master
+        "instrumentalness": 0.00,         # vocal tracks only
+    }
 
     recommendations = recommend_songs(user_prefs, songs, k=5)
 

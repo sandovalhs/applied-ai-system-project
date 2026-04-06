@@ -29,6 +29,56 @@ Some prompts to answer:
 
 You can include a simple diagram or bullet list if helpful.
 
+### Song Features
+
+Each `Song` exposes these fields used during scoring:
+
+| Field | Type | Role |
+|-------|------|------|
+| `genre` | string | Categorical match (highest weight) |
+| `mood` | string | Categorical match |
+| `energy` | float 0–1 | Continuous proximity score |
+| `acousticness` | float 0–1 | Available for future weighting |
+| `valence` | float 0–1 | Available for future weighting |
+| `tempo_bpm` | float | Available for future weighting |
+
+### UserProfile Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `favorite_genre` | string | Compared against song genre |
+| `favorite_mood` | string | Compared against song mood |
+| `target_energy` | float 0–1 | Used in energy proximity calculation |
+| `likes_acoustic` | bool | Reserved for future acousticness weighting |
+
+### Algorithm Recipe (Taste-First)
+
+Each song is scored against the user profile using three rules applied in sequence:
+
+```
+score = 0.0
+
+if song.genre == user.favorite_genre:
+    score += 2.0               # genre match — strongest signal
+
+if song.mood == user.favorite_mood:
+    score += 1.0               # mood match — secondary signal
+
+score += 1.0 - abs(song.energy - user.target_energy)
+                               # energy proximity — continuous, 0.0 to 1.0
+```
+
+**Maximum possible score: 4.0**
+
+All songs are ranked from highest to lowest score. The top K are returned as recommendations.
+
+### Expected Biases
+
+- **Genre over-dominance.** A genre match alone (2.0 pts) beats a perfect mood + energy match (1.0 + 1.0 pts). A great song in the wrong genre will never surface, even if it fits the user's vibe perfectly.
+- **Mood is under-weighted.** At only 1.0 pt, mood can be outweighed by genre. A user who picks "chill" might still receive an intense track if it shares their favorite genre.
+- **Energy range blindness.** The energy score is symmetric — being 0.2 above target costs the same as being 0.2 below. A user who wants *at least* high energy (e.g., for a workout) is not distinguished from one who wants *exactly* that energy level.
+- **Catalog size.** The system scores only the 20 songs in `data/songs.csv`. Niche genres or moods with few catalog entries will produce weak recommendations regardless of scoring.
+
 ---
 
 ## Getting Started
