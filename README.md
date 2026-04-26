@@ -1,273 +1,231 @@
-# 🎵 Music Recommender Simulation
+# Show Me a Song 🎵
+### A Natural Language Music Recommender powered by RAG + Gemini
+
+---
+
+## Table of Contents
+
+1. [Project Summary](#project-summary)
+2. [Original Project](#original-project)
+3. [Architecture Overview](#architecture-overview)
+4. [Setup Instructions](#setup-instructions)
+5. [Sample Interactions](#sample-interactions)
+6. [Design Decisions](#design-decisions)
+7. [Testing Summary](#testing-summary)
+8. [Reflection](#reflection)
+
+---
 
 ## Project Summary
 
-In this project you will build and explain a small music recommender system.
+**Show Me a Song** is an AI-powered music recommender that lets you describe what you want to hear in plain English — and actually gets it right. Instead of clicking through genre filters or mood toggles, you type something like *"something dark and fast for a late-night drive"* and the system figures out the rest.
 
-Your goal is to:
+Under the hood, the app uses **Retrieval-Augmented Generation (RAG)**: it first extracts your musical preferences from your natural language query using Gemini, retrieves the best matching songs from a curated catalog using a scoring engine, and then passes that retrieved context back to Gemini to generate a final ranked list with a plain-English explanation for each pick. The result is a recommendation that is both grounded in real catalog data and explained in human terms — not a black box.
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-Replace this paragraph with your own summary of what your version does.
+This matters because most recommendation systems either require rigid structured input (dropdowns, sliders) or operate as opaque black boxes users cannot interrogate. Show Me a Song is transparent by design: every recommendation shows you the score, the reasoning, and the audio features that drove the match.
 
 ---
 
-## How The System Works
+## Original Project
 
-Explain your design in plain language.
+This project extends **SuperCoolRecommender 1.0**, built during Modules 1–3 of the CodePath Applied AI course.
 
-Some prompts to answer:
+The original mission came from a startup music platform trying to understand how apps like Spotify and TikTok predict what users will love next. The goal was to simulate and explain how a basic recommendation system works by designing a modular Python architecture that transforms song data and structured "taste profiles" into personalized suggestions. The system scored every song in a 19-song catalog against a hand-crafted user profile using three signals — genre match (+2.0 pts), mood match (+1.0 pt), and energy proximity (up to +1.0 pt) — then returned the top K results with a plain-language explanation of each score.
 
-- What features does each `Song` use in your system
-  - For example: genre, mood, energy, tempo
-- What information does your `UserProfile` store
-- How does your `Recommender` compute a score for each song
-- How do you choose which songs to recommend
-
-You can include a simple diagram or bullet list if helpful.
-
-### Song Features
-
-Each `Song` exposes these fields used during scoring:
-
-| Field | Type | Role |
-|-------|------|------|
-| `genre` | string | Categorical match (highest weight) |
-| `mood` | string | Categorical match |
-| `energy` | float 0–1 | Continuous proximity score |
-| `acousticness` | float 0–1 | Available for future weighting |
-| `valence` | float 0–1 | Available for future weighting |
-| `tempo_bpm` | float | Available for future weighting |
-
-### UserProfile Fields
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `favorite_genre` | string | Compared against song genre |
-| `favorite_mood` | string | Compared against song mood |
-| `target_energy` | float 0–1 | Used in energy proximity calculation |
-| `likes_acoustic` | bool | Reserved for future acousticness weighting |
-
-### Algorithm Recipe (Taste-First)
-
-Each song is scored against the user profile using three rules applied in sequence:
-
-```
-score = 0.0
-
-if song.genre == user.favorite_genre:
-    score += 2.0               # genre match — strongest signal
-
-if song.mood == user.favorite_mood:
-    score += 1.0               # mood match — secondary signal
-
-score += 1.0 - abs(song.energy - user.target_energy)
-                               # energy proximity — continuous, 0.0 to 1.0
-```
-
-**Maximum possible score: 4.0**
-
-All songs are ranked from highest to lowest score. The top K are returned as recommendations.
-
-### Expected Biases
-
-- **Genre over-dominance.** A genre match alone (2.0 pts) beats a perfect mood + energy match (1.0 + 1.0 pts). A great song in the wrong genre will never surface, even if it fits the user's vibe perfectly.
-- **Mood is under-weighted.** At only 1.0 pt, mood can be outweighed by genre. A user who picks "chill" might still receive an intense track if it shares their favorite genre.
-- **Energy range blindness.** The energy score is symmetric — being 0.2 above target costs the same as being 0.2 below. A user who wants *at least* high energy (e.g., for a workout) is not distinguished from one who wants *exactly* that energy level.
-- **Catalog size.** The system scores only the 20 songs in `data/songs.csv`. Niche genres or moods with few catalog entries will produce weak recommendations regardless of scoring.
+Testing that system with adversarial profiles revealed its core limitation: the genre bonus was large enough to dominate every other signal, creating a "genre bubble" where mood and energy became nearly decorative. Show Me a Song was built to solve exactly that problem — by letting a language model interpret what the user actually means rather than forcing them to match catalog labels exactly.
 
 ---
 
-## Getting Started
+## Architecture Overview
 
-### Setup
+The system is a four-stage RAG pipeline. A full diagram is available in [`system_diagram.md`](system_diagram.md).
 
-1. Create a virtual environment (optional but recommended):
+```
+User types query
+      │
+      ▼
+① Claude NL Parser        Sends query to Gemini, extracts a structured
+                          prefs dict: {genre, mood, energy, tempo, ...}
+      │
+      ▼
+② Song Retriever          Scores every song in songs.csv against the prefs
+  (RAG: Retrieve)         dict using the original scoring engine. Returns
+                          top N candidates with scores and reasons.
+      │
+      ▼
+③ RAG Context Builder     Packages the user query + prefs + scored candidates
+  (RAG: Augment)          into a single enriched prompt for Gemini.
+      │
+      ▼
+④ Gemini Recommender      Receives the enriched prompt. Can only pick songs
+  (RAG: Generate)         from the retrieved list — grounded, not hallucinated.
+      │
+      ▼
+  Streamlit UI            Displays Top-K picks with audio metrics and
+                          Claude's one-sentence explanation per song.
+```
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
+**Logging** runs at every stage boundary, writing to `logs/rag_pipeline.log`.
+**Testing** covers each stage independently: pure functions are tested directly; Gemini API calls are mocked so the test suite runs fully offline.
 
-2. Install dependencies
+---
+
+## Setup Instructions
+
+### Prerequisites
+- Python 3.10+
+- A free Gemini API key from [aistudio.google.com](https://aistudio.google.com)
+
+### 1. Clone the repository
+
+```bash
+git clone <your-repo-url>
+cd applied-ai-system-project
+```
+
+### 2. Create a virtual environment (recommended)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate        # Mac / Linux
+.venv\Scripts\activate           # Windows
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+### 4. Set your Gemini API key
 
 ```bash
-python -m src.main
+export GEMINI_API_KEY="your-key-here"
 ```
 
-### Running Tests
-
-Run the starter tests with:
+To make this permanent across sessions:
 
 ```bash
-pytest
+echo 'export GEMINI_API_KEY="your-key-here"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+### 5. Run the app
+
+```bash
+streamlit run app.py
+```
+
+The app opens automatically at `http://localhost:8501`.
+
+### 6. (Optional) Run the original CLI recommender
+
+```bash
+python3 -m src.main
+```
+
+### 7. (Optional) Run the test suite
+
+No API key required — all Gemini calls are mocked.
+
+```bash
+pytest tests/ -v
+```
 
 ---
 
-## Experiments You Tried
+## Sample Interactions
 
-Use this section to document the experiments you ran. For example:
-
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+Each example below shows a natural language query, the structured preferences Gemini extracted, and the final recommendations returned by the system.
 
 ---
 
-## Limitations and Risks
+### Example 1
 
-Summarize some limitations of your recommender.
+**Query:** `"something dark and fast for a late-night drive"`
 
-Examples:
-
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
-
-You will go deeper on this in your model card.
+<!-- Add screenshot here -->
 
 ---
 
-## Screenshots
+### Example 2
 
-<a href="pic1.png" target="_blank"><img src='pic1.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+**Query:** `"chill r&b to study to, nothing too intense"`
 
-<a href="pic2.png" target="_blank"><img src='pic2.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+<!-- Add screenshot here -->
 
-<a href="pic3.png" target="_blank"><img src='pic3.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+---
 
-<a href="pic4.png" target="_blank"><img src='pic4.png' title='Music Recommender' width='' alt='Music Recommender' class='center-block' /></a>
+### Example 3
+
+**Query:** `"hype kpop like ANTIFRAGILE"`
+
+<!-- Add screenshot here -->
+
+---
+
+## Design Decisions
+
+### Why RAG instead of pure prompt engineering?
+
+The simplest approach would be to send the user's query directly to Gemini and ask it to recommend songs. The problem: Gemini would invent titles, fabricate artists, and produce songs that sound plausible but don't exist in the catalog. RAG solves this by injecting the actual catalog data into the prompt — Gemini can only pick from songs it was shown, so every recommendation is verifiable.
+
+### Why keep the original scoring engine?
+
+The rule-based scorer from Modules 1–3 is fast, deterministic, and transparent. Rather than replacing it, the RAG pipeline uses it as the retrieval layer: it narrows 57 songs down to the top 10 candidates before Gemini ever sees the prompt. This keeps API calls short and cheap, and it means the system degrades gracefully if the API is unavailable — the scored candidates are still meaningful on their own.
+
+### Why Gemini for both stages?
+
+Two separate Gemini calls are made: one to extract structured preferences from the user's query (Stage 1), and one to generate the final recommendations from the retrieved candidates (Stage 4). Each call uses a different system prompt tuned for its specific task — extractor vs. curator. Splitting them means each prompt stays small and focused, which reduces hallucination risk and makes failures easier to diagnose.
+
+### Why Streamlit?
+
+Streamlit was already in the project's `requirements.txt` and lets a functional UI be built in under 100 lines of Python. The collapsible debug panel (showing extracted prefs and raw candidate scores) is a direct product of this choice — it makes the RAG pipeline visible to anyone evaluating the project, not just developers reading the logs.
+
+### Trade-offs
+
+| Decision | Benefit | Cost |
+|----------|---------|------|
+| Two Gemini calls per query | Clean separation of concerns | Doubles API latency vs. one call |
+| Rule-based retriever (not semantic search) | No embeddings/vector DB required | Genre label mismatch still affects retrieval |
+| `gemini-2.5-flash` model | Free tier, fast | Less capable than larger models on edge cases |
+| 57-song catalog | Easy to inspect and debug | Too small to stress-test diversity meaningfully |
+
+---
+
+## Testing Summary
+
+The project includes **48 automated tests** across four test files. All 48 pass. No API key is required to run them.
+
+```
+tests/test_recommender.py      2 tests   Original scoring logic
+tests/test_nl_parser.py       18 tests   NL parsing + prefs validation
+tests/test_retriever.py       13 tests   Candidate retrieval + formatting
+tests/test_rag_pipeline.py    15 tests   End-to-end pipeline + response parser
+```
+
+### What worked
+
+- **`validate_prefs`** was the most valuable function to test. It catches silent failures like mismatched string casing (`"KPop"` vs `"kpop"`), out-of-range floats, and inverted `speechiness_range` tuples — exactly the class of bugs that caused wrong results in the original recommender.
+- **Mocking the Gemini API** with `unittest.mock.patch` worked cleanly. Patching `src.nl_parser.genai` and `src.rag_recommender.genai` independently meant each stage's behavior could be tested in isolation without any API calls.
+- **`parse_claude_response`** edge cases were easy to write tests for (empty response, truncated list, titles containing the word "by") and all passed first try once `rfind(" by ")` was used instead of `find`.
+
+### What didn't work at first
+
+- The first switch from Anthropic to Gemini used the deprecated `google.generativeai` package, which produced `FutureWarning` and a different client API. Switching to `google.genai` required updating both source files and all test mocks.
+- The first Gemini integration used `os.environ["GEMINI_API_KEY"]` which raised `KeyError` before the mock could intercept the call. Changing to `os.environ.get(...)` fixed it — the mock catches the `genai.Client()` call before any real API request is made.
+- The free tier `429 RESOURCE_EXHAUSTED` error with `limit: 0` was caused by creating the API key from the Google Cloud Console rather than from AI Studio directly. Creating a new key at `aistudio.google.com` resolved it.
+
+### What I learned
+
+Writing the tests before the implementation existed (TDD-adjacent) forced clearer thinking about function boundaries. The hardest part was not the tests themselves but deciding exactly what each function should own — for example, whether `validate_prefs` should log corrections (it doesn't; logging is the caller's responsibility) and whether `parse_claude_response` should raise on a short response (it doesn't; it returns what it found and the caller handles it). Those decisions only became obvious when writing the test cases.
 
 ---
 
 ## Reflection
 
-Read and complete `model_card.md`:
+Building Show Me a Song taught me that the hardest part of an AI system is not the model — it is the plumbing around it. The Gemini API call itself is five lines of code. What took real thought was deciding how to structure the prompt so the model outputs parseable JSON, how to validate that output without crashing, how to match parsed titles back to catalog entries case-insensitively, and how to log enough information at each stage that failures can be diagnosed without re-running the whole pipeline.
 
-[**Model Card**](model_card.md)
+The RAG architecture specifically changed how I think about language model limitations. A raw LLM will confidently fabricate song recommendations that sound real but aren't. RAG doesn't make the model smarter — it constrains it. By injecting the actual catalog into the prompt and telling the model it may only pick from that list, the output becomes trustworthy not because the model improved but because the environment it operates in changed. That reframing — thinking about what context you give the model, not just what model you use — felt like the most important practical lesson of the project.
 
-Write 1 to 2 paragraphs here about what you learned:
-
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
-
-
----
-
-## 7. `model_card_template.md`
-
-Combines reflection and model card framing from the Module 3 guidance. :contentReference[oaicite:2]{index=2}  
-
-```markdown
-# 🎧 Model Card - Music Recommender Simulation
-
-## 1. Model Name
-
-Give your recommender a name, for example:
-
-> VibeFinder 1.0
-
----
-
-## 2. Intended Use
-
-- What is this system trying to do
-- Who is it for
-
-Example:
-
-> This model suggests 3 to 5 songs from a small catalog based on a user's preferred genre, mood, and energy level. It is for classroom exploration only, not for real users.
-
----
-
-## 3. How It Works (Short Explanation)
-
-Describe your scoring logic in plain language.
-
-- What features of each song does it consider
-- What information about the user does it use
-- How does it turn those into a number
-
-Try to avoid code in this section, treat it like an explanation to a non programmer.
-
----
-
-## 4. Data
-
-Describe your dataset.
-
-- How many songs are in `data/songs.csv`
-- Did you add or remove any songs
-- What kinds of genres or moods are represented
-- Whose taste does this data mostly reflect
-
----
-
-## 5. Strengths
-
-Where does your recommender work well
-
-You can think about:
-- Situations where the top results "felt right"
-- Particular user profiles it served well
-- Simplicity or transparency benefits
-
----
-
-## 6. Limitations and Bias
-
-Where does your recommender struggle
-
-Some prompts:
-- Does it ignore some genres or moods
-- Does it treat all users as if they have the same taste shape
-- Is it biased toward high energy or one genre by default
-- How could this be unfair if used in a real product
-
----
-
-## 7. Evaluation
-
-How did you check your system
-
-Examples:
-- You tried multiple user profiles and wrote down whether the results matched your expectations
-- You compared your simulation to what a real app like Spotify or YouTube tends to recommend
-- You wrote tests for your scoring logic
-
-You do not need a numeric metric, but if you used one, explain what it measures.
-
----
-
-## 8. Future Work
-
-If you had more time, how would you improve this recommender
-
-Examples:
-
-- Add support for multiple users and "group vibe" recommendations
-- Balance diversity of songs instead of always picking the closest match
-- Use more features, like tempo ranges or lyric themes
-
----
-
-## 9. Personal Reflection
-
-A few sentences about what you learned:
-
-- What surprised you about how your system behaved
-- How did building this change how you think about real music recommenders
-- Where do you think human judgment still matters, even if the model seems "smart"
-
+The adversarial testing from Modules 1–3 also paid forward here. Having already documented exactly how the original scoring engine failed (genre dominance, case sensitivity, silent degradation on out-of-range inputs) made it straightforward to write targeted tests for the new pipeline. Every bug I expected showed up in the tests before it ever reached the UI.
