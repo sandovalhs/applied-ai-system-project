@@ -13,3 +13,9 @@ venv/
 
 # Pytest cache
 .pytest_cache/
+
+# Log files (keep the logs/ directory via logs/.gitkeep)
+logs/*.log
+
+# API keys
+.env

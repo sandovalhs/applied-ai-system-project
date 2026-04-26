@@ -1,14 +1,10 @@
 """
-rag_context.py — Stage 3: Build the Enriched Claude Prompt (RAG Augmentation Step)
+rag_context.py — Stage 3: Build the Enriched Claude Prompt (RAG Augmentation)
 
-Responsibility: Combine the user's original query, the extracted prefs
-dict, and the formatted candidate songs into a single prompt that
-Claude will use to generate the final recommendations.
-
-This is the "augmentation" half of Retrieval-Augmented Generation. By
-injecting the real catalog data here, we guarantee that Claude's answer
-is grounded in actual songs — it cannot invent titles or artists that
-don't exist in the retrieved set.
+Combines the user's original query, the extracted prefs, and the
+formatted candidate songs into a single prompt. By injecting real catalog
+data here, Claude's answer is grounded in actual songs — it cannot invent
+titles or artists that don't exist in the retrieved set.
 """
 
 
@@ -19,59 +15,46 @@ def build_rag_prompt(
     k: int = 5,
 ) -> str:
     """
-    Assemble the final prompt that will be sent to Claude in the
-    generation stage.
+    Assemble the enriched prompt sent to Claude in the generation stage.
 
-    The prompt has three sections:
-    1. The user's original query (verbatim) so Claude understands the
-       intent in plain English.
-    2. The extracted prefs dict rendered as a readable summary, so
-       Claude knows what the parser inferred.
-    3. The formatted candidate songs block from format_candidates_for_prompt(),
-       with an instruction telling Claude to choose only from this list.
-
-    Claude is also told the exact output format expected (title, artist,
-    and a one-sentence explanation per pick) so the response is easy to
-    parse in the generation stage.
-
-    Parameters
-    ----------
-    user_query : str
-        Original free-text query from the user.
-    prefs : dict
-        Validated and normalized prefs dict.
-    formatted_candidates : str
-        Pre-formatted candidate block from format_candidates_for_prompt().
-    k : int
-        How many songs Claude should pick. Passed into the prompt
-        instructions so Claude knows the target count.
-
-    Returns
-    -------
-    str
-        Complete prompt string ready to send to the Claude API.
+    Three sections:
+    1. The user's verbatim query so Claude understands the intent.
+    2. The inferred taste profile (non-empty/non-default prefs only).
+    3. The numbered candidate block with an explicit instruction to pick
+       only from that list.
     """
-    ...
+    prefs_lines = "\n".join(
+        f"  {key}: {value}"
+        for key, value in prefs.items()
+        if value not in ("", None, 0.0)
+    )
+
+    return (
+        f'User\'s request: "{user_query}"\n\n'
+        f"Inferred taste profile:\n{prefs_lines}\n\n"
+        f"Candidate songs from the catalog (already scored against preferences):\n\n"
+        f"{formatted_candidates}\n\n"
+        f"Choose the {k} best songs from the list above. "
+        f"For each pick, write one sentence explaining why it fits the user's vibe."
+    )
 
 
 def build_generation_system_prompt() -> str:
     """
     Return the static system prompt used during the generation stage.
 
-    This is different from the system prompt in nl_parser.py. Here,
-    Claude is acting as a music curator, not a preference extractor.
-
-    The prompt tells Claude to:
-    - Only recommend songs from the numbered candidate list provided.
-    - Never invent song titles, artists, or features.
-    - Explain each pick in one sentence referencing the user's stated
-      vibe, not just the numeric score.
-    - Output in a structured format (one song per line) so the response
-      parser in rag_recommender.py can extract the picks reliably.
-
-    Returns
-    -------
-    str
-        System prompt string for the generation call.
+    Claude acts as a music curator, not a preference extractor. The key
+    constraint: it may only recommend songs from the provided candidate list.
+    Output format is strict so parse_claude_response() can extract picks
+    reliably with a single regex pass.
     """
-    ...
+    return """\
+You are a music curator. You will receive a user's vibe description, their inferred
+taste profile, and a numbered list of candidate songs with scores.
+
+Rules:
+- Recommend ONLY songs from the provided candidate list. Never invent titles or artists.
+- Output exactly this format for each pick (one per line, no extra text before or after):
+    N. Title by Artist — one-sentence explanation referencing the user's vibe.
+- Use a real em dash (—) as the separator between the song and explanation.
+- Do not add any introductory text, closing remarks, or blank lines between picks."""

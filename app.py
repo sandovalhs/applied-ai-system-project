@@ -1,112 +1,139 @@
 """
 app.py — Streamlit UI
 
-Responsibility: Provide a browser-based interface where the user types
-a natural language query and sees the top-K song recommendations
-returned by the RAG pipeline.
+Browser-based interface for the Natural Language Music Recommender.
+The user types a free-text query and sees Top-K song recommendations
+with Claude's explanation for each pick, plus a collapsible debug panel
+showing the intermediate RAG state.
 
 Run with:
     streamlit run app.py
-
-The app loads songs.csv once at startup, then calls run_pipeline() on
-every query submission. Results are displayed with title, artist, score,
-and Claude's plain-English explanation for each pick.
 """
 
 import streamlit as st
+
+from src.logger import get_logger, log_error
+from src.nl_parser import parse_query, validate_prefs
+from src.rag_context import build_rag_prompt
+from src.rag_recommender import generate_recommendations
 from src.recommender import load_songs
-from src.rag_recommender import run_pipeline
-from src.logger import get_logger
+from src.retriever import format_candidates_for_prompt, retrieve_candidates
+
+_EXAMPLE_QUERY = "something hype for a late-night drive, kind of trap-ish"
+_K = 5
 
 
 def setup_page() -> None:
-    """
-    Configure the Streamlit page title, layout, and any global CSS or
-    header text shown at the top of the app.
+    """Configure page title, icon, layout, and header text."""
+    st.set_page_config(
+        page_title="Music Recommender",
+        page_icon="🎵",
+        layout="wide",
+    )
+    st.title("🎵 Natural Language Music Recommender")
+    st.caption(
+        "Describe your vibe in plain English. "
+        "Claude will extract your preferences, retrieve matching songs, "
+        "and explain every pick — powered by RAG."
+    )
 
-    Called once at the top of main() before any widgets are rendered.
-    Sets the page to wide layout so the results table has room to
-    breathe.
-    """
-    ...
+
+@st.cache_data
+def load_catalog() -> list:
+    """Load songs.csv once and cache it for the lifetime of the session."""
+    return load_songs("data/songs.csv")
 
 
 def render_query_input() -> str:
     """
-    Render the text input box and submit button for the user's query.
+    Render the text input and Submit button inside a form.
 
-    Returns the query string when the user clicks Submit, or an empty
-    string if the button has not been clicked yet. The input is
-    pre-populated with an example query so new users know what to type.
-
-    Returns
-    -------
-    str
-        The user's query text, or "" if not yet submitted.
+    Returns the stripped query string on submission, or an empty string
+    if the button has not been clicked yet.
     """
-    ...
+    with st.form("query_form"):
+        query = st.text_input(
+            "What do you want to listen to?",
+            placeholder=_EXAMPLE_QUERY,
+        )
+        submitted = st.form_submit_button("Recommend")
+    return query.strip() if submitted else ""
 
 
 def render_recommendations(recommendations: list) -> None:
     """
-    Display the final list of recommended songs in the Streamlit UI.
+    Display each (song_dict, explanation) tuple as a card-style block.
 
-    For each (song_dict, explanation) tuple in the list, renders:
-    - Rank number and song title + artist as a header.
-    - Key audio features (genre, mood, energy, tempo) as a small table
-      or inline metrics so the user can see why it was picked.
-    - Claude's one-sentence explanation as a callout block.
-
-    If the recommendations list is empty (pipeline returned nothing),
-    shows a friendly error message instead of a blank screen.
-
-    Parameters
-    ----------
-    recommendations : list of (song_dict, explanation_string) tuples
-        Output from run_pipeline().
+    Shows rank, title, artist, four audio metrics, and Claude's
+    one-sentence explanation. Falls back to a warning if the list is empty.
     """
-    ...
+    if not recommendations:
+        st.warning("No recommendations returned. Try rephrasing your query.")
+        return
+
+    st.subheader("Your Recommendations")
+    for i, (song, explanation) in enumerate(recommendations, start=1):
+        with st.container():
+            st.markdown(f"**#{i} — {song['title']}** by {song['artist']}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Genre", song["genre"])
+            c2.metric("Mood", song["mood"])
+            c3.metric("Energy", f"{song['energy']:.2f}")
+            c4.metric("Tempo", f"{song['tempo_bpm']:.0f} BPM")
+            st.info(explanation)
+            st.divider()
 
 
 def render_debug_expander(prefs: dict, candidates: list) -> None:
     """
-    Render a collapsed "Debug / How it worked" section below the results.
+    Render a collapsed 'How it worked' section below the results.
 
-    When expanded, shows:
-    - The structured prefs dict that Claude extracted from the query.
-    - The full candidate list with scores before Claude re-ranked them.
-
-    This section is hidden by default so it doesn't clutter the main
-    view, but it's essential for demonstrating the RAG pipeline to
-    graders or evaluators.
-
-    Parameters
-    ----------
-    prefs : dict
-        Validated prefs dict from the parse stage.
-    candidates : list of (song_dict, score, reason_string) tuples
-        Retrieved candidates before generation.
+    Shows the prefs dict Claude extracted and the full scored candidate
+    list before Claude re-ranked them — essential for demonstrating the
+    RAG pipeline to evaluators.
     """
-    ...
+    with st.expander("Debug — How it worked", expanded=False):
+        st.subheader("Extracted Preferences")
+        st.json(prefs)
+
+        st.subheader("Retrieved Candidates (before Claude re-ranked)")
+        for song, score, reason in candidates:
+            st.markdown(
+                f"**[{score:.2f}]** {song['title']} by {song['artist']} — _{reason}_"
+            )
 
 
 def main() -> None:
     """
-    Entry point for the Streamlit app.
+    Streamlit entry point.
 
-    Execution order:
-    1. setup_page()          — configure layout and title
-    2. load_songs()          — load catalog once, cache with st.cache_data
-    3. render_query_input()  — show text box, wait for submission
-    4. run_pipeline()        — run all four RAG stages if query is present
-    5. render_recommendations() — display results
-    6. render_debug_expander()  — show internals in a collapsed section
-
-    All exceptions from run_pipeline() are caught here and shown as a
-    Streamlit error message so the app never shows a raw traceback to
-    the user.
+    Calls each pipeline stage individually (rather than run_pipeline) so
+    the intermediate prefs and candidates are available for the debug panel.
+    All exceptions are caught and shown as a user-friendly error message.
     """
-    ...
+    setup_page()
+    songs = load_catalog()
+    query = render_query_input()
+
+    if not query:
+        return
+
+    logger = get_logger()
+
+    with st.spinner("Finding your songs..."):
+        try:
+            prefs = validate_prefs(parse_query(query))
+            candidates = retrieve_candidates(prefs, songs, top_n=_K * 2)
+            formatted = format_candidates_for_prompt(candidates)
+            prompt = build_rag_prompt(query, prefs, formatted, k=_K)
+            recommendations = generate_recommendations(prompt, candidates, k=_K)
+        except Exception as exc:
+            log_error(logger, exc, "app.main", query)
+            st.error(f"Something went wrong: {exc}")
+            return
+
+    render_recommendations(recommendations)
+    render_debug_expander(prefs, candidates)
 
 
 if __name__ == "__main__":
