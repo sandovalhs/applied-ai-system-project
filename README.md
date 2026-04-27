@@ -142,25 +142,17 @@ Each example below shows a natural language query, the structured preferences Ge
 
 ### Example 1
 
-**Query:** `"something dark and fast for a late-night drive"`
+**Query:** `"chill r&b to study to, nothing too intense"`
 
-<!-- Add screenshot here -->
+<img src="assets/ex1.png" alt="Example 1 — chill r&b query" width="800"/>
 
 ---
 
 ### Example 2
 
-**Query:** `"chill r&b to study to, nothing too intense"`
-
-<!-- Add screenshot here -->
-
----
-
-### Example 3
-
 **Query:** `"hype kpop like ANTIFRAGILE"`
 
-<!-- Add screenshot here -->
+<img src="assets/ex2.png" alt="Example 2 — hype kpop query" width="800"/>
 
 ---
 
@@ -229,3 +221,9 @@ Building Show Me a Song taught me that the hardest part of an AI system is not t
 The RAG architecture specifically changed how I think about language model limitations. A raw LLM will confidently fabricate song recommendations that sound real but aren't. RAG doesn't make the model smarter — it constrains it. By injecting the actual catalog into the prompt and telling the model it may only pick from that list, the output becomes trustworthy not because the model improved but because the environment it operates in changed. That reframing — thinking about what context you give the model, not just what model you use — felt like the most important practical lesson of the project.
 
 The adversarial testing from Modules 1–3 also paid forward here. Having already documented exactly how the original scoring engine failed (genre dominance, case sensitivity, silent degradation on out-of-range inputs) made it straightforward to write targeted tests for the new pipeline. Every bug I expected showed up in the tests before it ever reached the UI.
+
+## Demo
+
+<a href="https://www.loom.com/share/f02452732a564089882b1cede74a723e">
+  <img src="https://cdn.loom.com/sessions/thumbnails/f02452732a564089882b1cede74a723e-with-play.gif" alt="Watch the demo" width="800"/>
+</a>
