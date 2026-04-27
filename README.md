@@ -224,6 +224,11 @@ The adversarial testing from Modules 1–3 also paid forward here. Having alread
 
 ## Demo
 
-<a href="https://www.loom.com/share/f02452732a564089882b1cede74a723e">
-  <img src="https://cdn.loom.com/sessions/thumbnails/f02452732a564089882b1cede74a723e-with-play.gif" alt="Watch the demo" width="800"/>
-</a>
+<div>
+    <a href="https://www.loom.com/share/f02452732a564089882b1cede74a723e">
+      <p>Music Recommender - 26 April 2026 - Watch Video</p>
+    </a>
+    <a href="https://www.loom.com/share/f02452732a564089882b1cede74a723e">
+      <img style="max-width:300px;" src="https://cdn.loom.com/sessions/thumbnails/f02452732a564089882b1cede74a723e-1bf7c66ea310b27b-full-play.gif#t=0.1">
+    </a>
+  </div>
